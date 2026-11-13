@@ -109,7 +109,38 @@ describe("Overview Page", () => {
 
     // Empty state explanation
     expect(html).toContain("No transactions recorded yet")
-    expect(html).toContain("Persistent database storage has not been implemented")
+    expect(html).toContain("Database Connected:")
+    expect(html).toContain("clearpayai.db")
+  })
+
+  it("renders database-backed stats accurately when dashboardStats is provided", () => {
+    const html = renderToString(
+      React.createElement(OverviewPage, {
+        sessionTransactions: [],
+        recoveryCases: [],
+        activityLog: [],
+        dashboardStats: {
+          totalTransactions: 12,
+          successfulPayments: 8,
+          failedPayments: 3,
+          pendingPayments: 1,
+          recoveryCases: 5,
+        },
+        showDemoData: false,
+        onToggleDemoData: () => {},
+        onNavigate: () => {},
+        onCreateOrder: () => {},
+        isCreatingOrder: false,
+        onAnalyzeTransaction: () => {},
+      })
+    )
+
+    expect(html).toContain("12")
+    expect(html).toContain("8")
+    expect(html).toContain("3")
+    expect(html).toContain("1")
+    expect(html).toContain("5")
+    expect(html).toContain("Database records")
   })
 
   it("renders sample metrics when demo preview is enabled with clear DEMO DATA badge", () => {
@@ -134,7 +165,7 @@ describe("Overview Page", () => {
 })
 
 describe("Transactions Page", () => {
-  it("renders empty state and database limitation notice when no transactions exist", () => {
+  it("renders empty state and database connection notice when no transactions exist", () => {
     const html = renderToString(
       React.createElement(TransactionsPage, {
         sessionTransactions: [],
@@ -146,9 +177,30 @@ describe("Transactions Page", () => {
       })
     )
 
-    expect(html).toContain("Session Transactions Notice")
+    expect(html).toContain("Database Connected:")
+    expect(html).toContain("clearpayai.db")
     expect(html).toContain("No transactions in current session")
-    expect(html).toContain("Persistent database storage has not been connected")
+  })
+
+  it("renders database syncing state and retry button when error occurs", () => {
+    const html = renderToString(
+      React.createElement(TransactionsPage, {
+        sessionTransactions: [],
+        onCreateOrder: () => {},
+        isCreatingOrder: false,
+        onAnalyzeTransaction: () => {},
+        showDemoData: false,
+        onToggleDemoData: () => {},
+        isLoading: true,
+        error: "Failed to connect to backend",
+        onRefresh: () => {},
+      })
+    )
+
+    expect(html).toContain("Database Error:")
+    expect(html).toContain("Failed to connect to backend")
+    expect(html).toContain("Retry")
+    expect(html).toContain("Syncing...")
   })
 
   it("renders transaction table with correct columns and status badges when records exist", () => {
@@ -193,7 +245,7 @@ describe("Transactions Page", () => {
 })
 
 describe("Recovery Cases Page", () => {
-  it("renders non-persistent notice and empty state when no cases exist", () => {
+  it("renders database connection notice and empty state when no cases exist", () => {
     const html = renderToString(
       React.createElement(RecoveryCasesPage, {
         recoveryCases: [],
@@ -204,7 +256,8 @@ describe("Recovery Cases Page", () => {
       })
     )
 
-    expect(html).toContain("Non-Persistent Case Management Interface")
+    expect(html).toContain("Database Connected:")
+    expect(html).toContain("clearpayai.db")
     expect(html).toContain("No recovery cases recorded in this session")
   })
 

@@ -205,13 +205,67 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </div>
 
-        {/* Database & Persistence Roadmap Note */}
-        <div className="dashboard-card" style={{ opacity: 0.85 }}>
-          <h3 className="card-title" style={{ marginBottom: "6px" }}>Database & Data Persistence (Future Phase)</h3>
-          <p style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: 1.5 }}>
-            Persistent storage (PostgreSQL, Redis caching, merchant authentication) is planned for the subsequent development phase.
-            Current application state resides in browser memory and active session state.
-          </p>
+        {/* Database & Persistence Status */}
+        <div className="dashboard-card">
+          <div className="card-header-row">
+            <div>
+              <h3 className="card-title">Database & Data Persistence</h3>
+              <p style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+                SQLAlchemy ORM integration with persistent storage.
+              </p>
+            </div>
+            <span
+              className="status-badge"
+              style={{
+                background: systemStatus?.database_configured ? "#ecfdf5" : "#fef2f2",
+                color: systemStatus?.database_configured ? "#059669" : "#dc2626",
+                border: systemStatus?.database_configured ? "1px solid #a7f3d0" : "1px solid #fecaca",
+              }}
+            >
+              {systemStatus?.database_configured ? "● CONNECTED" : "○ DISCONNECTED"}
+            </span>
+          </div>
+
+          <div
+            style={{
+              padding: "14px 16px",
+              background: "var(--bg)",
+              borderRadius: "6px",
+              border: "1px solid var(--border)",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: "16px",
+              fontSize: "13px",
+            }}
+          >
+            <div>
+              <div style={{ color: "var(--text-muted)", marginBottom: "4px" }}>Database Engine</div>
+              <div style={{ fontWeight: 600, color: "var(--text-h)", textTransform: "uppercase" }}>
+                {systemStatus?.database_type || "sqlite"} (SQLAlchemy ORM)
+              </div>
+            </div>
+
+            <div>
+              <div style={{ color: "var(--text-muted)", marginBottom: "4px" }}>Database Target</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--text-h)" }}>
+                {systemStatus?.database_file || "clearpayai.db"}
+              </div>
+            </div>
+
+            <div>
+              <div style={{ color: "var(--text-muted)", marginBottom: "4px" }}>ORM Entity Models</div>
+              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                PaymentTransaction, RecoveryCase, AIAnalysis
+              </div>
+            </div>
+
+            <div>
+              <div style={{ color: "var(--text-muted)", marginBottom: "4px" }}>Production Ready</div>
+              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                Configurable via DATABASE_URL
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

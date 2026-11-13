@@ -7,6 +7,9 @@ interface RecoveryCasesPageProps {
   onNavigateToCopilot: () => void
   showDemoData: boolean
   onToggleDemoData: (enabled: boolean) => void
+  isLoading?: boolean
+  error?: string | null
+  onRefresh?: () => void
 }
 
 export const RecoveryCasesPage: React.FC<RecoveryCasesPageProps> = ({
@@ -15,6 +18,9 @@ export const RecoveryCasesPage: React.FC<RecoveryCasesPageProps> = ({
   onNavigateToCopilot,
   showDemoData,
   onToggleDemoData,
+  isLoading,
+  error,
+  onRefresh,
 }) => {
   const allCases = showDemoData && recoveryCases.length === 0
     ? DEMO_CASES
@@ -22,23 +28,52 @@ export const RecoveryCasesPage: React.FC<RecoveryCasesPageProps> = ({
 
   return (
     <div className="recovery-cases-page">
-      {/* Scope and Non-persistence Notice */}
-      <div className="notice-banner notice-warning">
-        <span style={{ fontSize: "16px" }}>📁</span>
+      {/* Scope and Database Notice */}
+      <div className="notice-banner notice-info">
+        <span style={{ fontSize: "16px" }}>🗄️</span>
         <div style={{ flex: 1 }}>
-          <strong>Non-Persistent Case Management Interface:</strong> Cases listed below are session-scoped payment
-          incidents analyzed by the Payment Recovery Copilot during your active session. They are not stored in a persistent
-          database and will reset if the page is refreshed. Case records are retained when switching tabs.
+          <strong>Database Connected:</strong> Recovery cases and their linked Gemini AI analyses are stored in <code>clearpayai.db</code>.
+          Cases persist across application restarts.
         </div>
-        <button
-          type="button"
-          onClick={() => onToggleDemoData(!showDemoData)}
-          className="btn-secondary btn-sm"
-          style={{ whiteSpace: "nowrap" }}
-        >
-          {showDemoData ? "Hide Demo Cases" : "Preview Demo Cases"}
-        </button>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="btn-secondary btn-sm"
+              style={{ whiteSpace: "nowrap" }}
+            >
+              {isLoading ? "Syncing..." : "↻ Refresh DB"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onToggleDemoData(!showDemoData)}
+            className="btn-secondary btn-sm"
+            style={{ whiteSpace: "nowrap" }}
+          >
+            {showDemoData ? "Hide Demo Cases" : "Preview Demo Cases"}
+          </button>
+        </div>
       </div>
+
+      {error && (
+        <div
+          className="notice-banner notice-warning"
+          style={{ marginBottom: "16px", background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b" }}
+        >
+          <span>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <strong>Database Error:</strong> {error}
+          </div>
+          {onRefresh && (
+            <button type="button" onClick={onRefresh} className="btn-secondary btn-sm">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {showDemoData && recoveryCases.length === 0 && (
         <div
@@ -56,7 +91,7 @@ export const RecoveryCasesPage: React.FC<RecoveryCasesPageProps> = ({
           }}
         >
           <span className="status-badge badge-demo">[DEMO DATA MODE]</span>
-          <span>Sample recovery cases displayed for UI inspection. No database storage exists.</span>
+          <span>Sample recovery cases displayed for UI inspection. Database records are empty.</span>
         </div>
       )}
 

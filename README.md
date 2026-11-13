@@ -1,30 +1,47 @@
 # ClearPay AI — Payment Recovery Copilot
 
-## Phase 3: Dashboard & Payment Recovery Copilot
+## Database & Dashboard Integration
 
 ### Project Overview
 ClearPay AI is a Payment Recovery Copilot and Financial Operations Dashboard. The application pairs a React + TypeScript frontend with a Python + FastAPI backend, integrating:
-1. **Financial Operations Dashboard**: KPI cards, session transaction tracking, recovery case oversight, recent activity audit, and demo data mode.
-2. **Payment Recovery Copilot**: Live Google Gemini AI analysis of failed transactions, structured failure diagnosis, evidence-grounded hypothesis scoring, multi-turn follow-up queries, conditional document requirements, and customer-facing messaging.
-3. **PayPal Sandbox Integration**: End-to-end OAuth authentication, order creation, buyer approval redirect, verified payment capture, duplicate capture protection, and simulated Demo Mode.
+1. **Persistent Database Storage**: SQLAlchemy ORM with SQLite (`C:\ClearPayAI\backend\clearpayai.db`) and configurable `DATABASE_URL` for PostgreSQL.
+2. **Financial Operations Dashboard**: Real-time KPI metrics, transaction search & status filtering, recovery case registry, live audit activity feed, and demo data mode.
+3. **Payment Recovery Copilot**: Live Google Gemini AI analysis of failed transactions, structured failure diagnosis, evidence-grounded hypothesis scoring, multi-turn follow-up queries, conditional document requirements, and customer-facing messaging.
+4. **PayPal Sandbox Integration**: End-to-end OAuth authentication, order creation, buyer approval redirect, verified payment capture, duplicate capture protection, and simulated Demo Mode.
 
 ### Current Implementation Scope
+- ✅ **Database & Persistence Layer**:
+  - `clearpayai.db`: SQLite database anchored in backend directory (`C:\ClearPayAI\backend\clearpayai.db`).
+  - Automatic table initialization via FastAPI lifespan (`init_db()`) without destroying existing records.
+  - Configurable `DATABASE_URL` supporting SQLite and PostgreSQL.
+  - Isolated in-memory SQLite fixture for test suites (`sqlite:///:memory:` with `StaticPool`).
+  - **Models**:
+    - `PaymentTransaction`: Stores PayPal orders, captures, amounts, currencies, statuses (`CREATED`, `AWAITING_APPROVAL`, `COMPLETED`, `FAILED`, `DECLINED`), and failure reasons.
+    - `RecoveryCase`: Tracks payment incident cases with statuses (`Action Required`, `OPEN`, `IN_PROGRESS`, `RESOLVED`), error references, and problem summaries.
+    - `AIAnalysis`: Persists structured Gemini diagnoses, confirmed facts, causes, recommendations, document checklists, and customer messages.
 - ✅ **SaaS Dashboard Layout**: Professional sidebar navigation across 5 dedicated sections:
-  1. **Overview**: KPI metrics (Total, Successful, Failed, Pending, Recovery Cases), session state notice, demo data toggle, recent transactions, recovery overview, and recent activity.
+  1. **Overview**: Real-time database KPI cards (Total, Successful, Failed, Pending, Recovery Cases), database sync status, demo data toggle, recent transactions table, recovery overview, and activity audit feed.
   2. **Payment Recovery Copilot**: Full diagnostic workbench with transaction incident input, Gemini analysis generation, confirmed facts vs. possible causes, recovery action plan, conditional document checklists, and multi-turn follow-up history.
   3. **Payment Transactions**: Searchable by Order ID, filterable by status, with explicit status badges, honest empty states, and 1-click "Diagnose in Copilot" actions.
-  4. **Recovery Cases**: Non-persistent case registry with incident summaries, AI diagnostic indicators, recommended next actions, and direct links to Copilot.
-  5. **Settings**: Non-sensitive system status inspection (backend health, Gemini model status, PayPal Sandbox status), safe Demo Mode toggle, and strict zero-secret-leakage security policy.
+  4. **Recovery Cases**: Persistent case registry with incident summaries, AI diagnostic indicators, recommended next actions, and direct links to Copilot.
+  5. **Settings**: Non-sensitive system status inspection (backend health, database configuration, Gemini model status, PayPal Sandbox status), safe Demo Mode toggle, and strict zero-secret-leakage security policy.
 - ✅ **Backend FastAPI Service**:
   - `GET /` & `GET /health` — Service health
-  - `GET /api/settings/status` — Safe integration status flags (no secret exposure)
-  - `POST /api/orders` — PayPal Sandbox order creation
-  - `POST /api/orders/{order_id}/capture` — Verified payment capture
-  - `POST /api/ai/analyze-payment` — Gemini payment failure diagnostic analysis
+  - `GET /api/settings/status` — Safe integration and database status flags (no secret exposure)
+  - `GET /api/dashboard/stats` — Real KPI metrics computed from database records
+  - `GET /api/transactions` — List and filter persisted transactions
+  - `GET /api/recovery-cases` — List and filter persisted recovery cases
+  - `POST /api/recovery-cases` — Create a new recovery case
+  - `GET /api/recovery-cases/{case_id}` — Get single recovery case details
+  - `PATCH /api/recovery-cases/{case_id}` — Update recovery case status/details
+  - `GET /api/activity` — Unified chronological activity timeline from database
+  - `POST /api/orders` — PayPal Sandbox order creation with database persistence
+  - `POST /api/orders/{order_id}/capture` — Verified payment capture with database state updates
+  - `POST /api/ai/analyze-payment` — Gemini payment failure diagnostic analysis with database persistence
   - `POST /api/ai/follow-up` — Multi-turn AI follow-up questions
 - ✅ **Automated Verification**:
-  - 52 passing backend tests (`pytest test_main.py`)
-  - 35 passing frontend tests (`vitest run` across 3 test suites)
+  - 63 passing backend tests (`pytest test_main.py -q`)
+  - 37 passing frontend tests (`vitest run` across 3 test suites)
   - 0 ESLint warnings or errors (`npm run lint`)
   - 0 TypeScript compiler errors (`npx tsc --noEmit`)
   - Clean production build (`vite build`)
@@ -128,14 +145,14 @@ python -m uvicorn main:app --reload
 
 ### Running Tests
 ```powershell
-# Backend tests (52 passing tests)
+# Backend tests (63 passing tests across PayPal, Gemini, and database suites)
 cd C:\ClearPayAI\backend
 .\.venv\Scripts\Activate.ps1
 python -m pytest test_main.py -q
 
-# Frontend checks (35 passing tests, 0 lint errors, 0 type errors)
+# Frontend checks (37 passing tests, 0 lint errors, 0 type errors)
 cd C:\ClearPayAI\frontend
-npm test          # Vitest: dashboard, copilot, and PayPal return tests (35 passed)
+npm test          # Vitest: dashboard, copilot, and PayPal return tests (37 passed)
 npm run lint      # ESLint checks (0 errors, 0 warnings)
 npx tsc --noEmit  # TypeScript strict type checking
 npm run build     # Production Vite bundle build

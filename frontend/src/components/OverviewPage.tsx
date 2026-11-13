@@ -4,6 +4,7 @@ import {
   type TransactionRecord,
   type RecoveryCaseRecord,
   type ActivityItem,
+  type DashboardStats,
   DEMO_TRANSACTIONS,
   DEMO_CASES,
 } from "../dashboardTypes"
@@ -12,6 +13,10 @@ interface OverviewPageProps {
   sessionTransactions: TransactionRecord[]
   recoveryCases: RecoveryCaseRecord[]
   activityLog: ActivityItem[]
+  dashboardStats?: DashboardStats | null
+  isLoading?: boolean
+  error?: string | null
+  onRefresh?: () => void
   showDemoData: boolean
   onToggleDemoData: (enabled: boolean) => void
   onNavigate: (item: NavItem) => void
@@ -24,6 +29,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   sessionTransactions,
   recoveryCases,
   activityLog,
+  dashboardStats,
+  isLoading,
+  error,
+  onRefresh,
   showDemoData,
   onToggleDemoData,
   onNavigate,
@@ -31,49 +40,82 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   isCreatingOrder,
   onAnalyzeTransaction,
 }) => {
-  // Use session data unless demo preview is toggled
-  const transactions = showDemoData && sessionTransactions.length === 0
-    ? DEMO_TRANSACTIONS
-    : sessionTransactions
+  const isDemoActive = showDemoData && sessionTransactions.length === 0
+  const transactions = isDemoActive ? DEMO_TRANSACTIONS : sessionTransactions
+  const cases = isDemoActive ? DEMO_CASES : recoveryCases
 
-  const cases = showDemoData && recoveryCases.length === 0
-    ? DEMO_CASES
-    : recoveryCases
+  // Compute stats: prefer database-backed stats when available
+  const totalTransactions = isDemoActive
+    ? transactions.length
+    : (dashboardStats ? dashboardStats.totalTransactions : transactions.length)
 
-  // Compute stats
-  const totalTransactions = transactions.length
-  const successfulPayments = transactions.filter(
-    (t) => t.status === "completed" || t.status === "simulated_completed"
-  ).length
-  const failedPayments = transactions.filter(
-    (t) => t.status === "failed" || t.status === "declined"
-  ).length
-  const pendingPayments = transactions.filter(
-    (t) => t.status === "awaiting_approval" || t.status === "processing"
-  ).length
-  const totalCases = cases.length
+  const successfulPayments = isDemoActive
+    ? transactions.filter((t) => t.status === "completed" || t.status === "simulated_completed").length
+    : (dashboardStats ? dashboardStats.successfulPayments : transactions.filter((t) => t.status === "completed" || t.status === "simulated_completed").length)
+
+  const failedPayments = isDemoActive
+    ? transactions.filter((t) => t.status === "failed" || t.status === "declined").length
+    : (dashboardStats ? dashboardStats.failedPayments : transactions.filter((t) => t.status === "failed" || t.status === "declined").length)
+
+  const pendingPayments = isDemoActive
+    ? transactions.filter((t) => t.status === "awaiting_approval" || t.status === "processing").length
+    : (dashboardStats ? dashboardStats.pendingPayments : transactions.filter((t) => t.status === "awaiting_approval" || t.status === "processing").length)
+
+  const totalCases = isDemoActive
+    ? cases.length
+    : (dashboardStats ? dashboardStats.recoveryCases : cases.length)
 
   return (
     <div className="overview-page">
-      {/* Notice Banner explaining data source */}
+      {/* Notice Banner explaining database connection */}
       <div className="notice-banner notice-info">
-        <span style={{ fontSize: "16px" }}>ℹ️</span>
+        <span style={{ fontSize: "16px" }}>🗄️</span>
         <div style={{ flex: 1 }}>
-          <strong>Session Overview Notice:</strong> Metrics and transaction records below reflect verified activity
-          from your current active browser session. Persistent database storage has not been implemented in this phase.
+          <strong>Database Connected:</strong> Metrics and payment records are synchronized with <code>clearpayai.db</code>.
+          Transactions and AI recovery cases persist across reloads.
           {transactions.length === 0 && !showDemoData && (
-            <span> You can preview sample data using the toggle on the right.</span>
+            <span> Database is empty. Create a test order or preview demo data.</span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => onToggleDemoData(!showDemoData)}
-          className="btn-secondary btn-sm"
-          style={{ whiteSpace: "nowrap" }}
-        >
-          {showDemoData ? "Hide Demo Data" : "Preview Demo Data"}
-        </button>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="btn-secondary btn-sm"
+              style={{ whiteSpace: "nowrap" }}
+            >
+              {isLoading ? "Syncing..." : "↻ Refresh DB"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onToggleDemoData(!showDemoData)}
+            className="btn-secondary btn-sm"
+            style={{ whiteSpace: "nowrap" }}
+          >
+            {showDemoData ? "Hide Demo Data" : "Preview Demo Data"}
+          </button>
+        </div>
       </div>
+
+      {error && (
+        <div
+          className="notice-banner notice-warning"
+          style={{ marginBottom: "16px", background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b" }}
+        >
+          <span>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <strong>Database Sync Notice:</strong> {error}
+          </div>
+          {onRefresh && (
+            <button type="button" onClick={onRefresh} className="btn-secondary btn-sm">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {showDemoData && sessionTransactions.length === 0 && (
         <div
@@ -91,7 +133,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           }}
         >
           <span className="status-badge badge-demo">[DEMO DATA MODE]</span>
-          <span>Showing illustrative sample records for UI demonstration. No real or backend database is implied.</span>
+          <span>Showing illustrative sample records for UI demonstration. Database records are empty.</span>
         </div>
       )}
 
@@ -104,7 +146,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           </div>
           <div className="kpi-value">{totalTransactions}</div>
           <div className="kpi-sub">
-            {showDemoData && sessionTransactions.length === 0 ? "Sample dataset" : "Active session records"}
+            {isDemoActive ? "Sample dataset" : "Database records"}
           </div>
         </div>
 

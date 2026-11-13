@@ -10,6 +10,45 @@ from fastapi.testclient import TestClient
 
 # Import the app module
 import main
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from database import Base, get_db
+from models import PaymentTransaction, RecoveryCase, AIAnalysis
+
+TEST_DATABASE_URL = "sqlite:///:memory:"
+
+
+@pytest.fixture(autouse=True)
+def test_db_session():
+    """Create a fresh in-memory SQLite database for each test, isolated from clearpayai.db."""
+    main._captured_order_ids.clear()
+    main._access_token = None
+    main._token_expires_at = 0.0
+
+    test_engine = create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    Base.metadata.create_all(bind=test_engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    main.app.dependency_overrides[get_db] = override_get_db
+    yield TestingSessionLocal
+    main.app.dependency_overrides.clear()
+    Base.metadata.drop_all(bind=test_engine)
+    test_engine.dispose()
+    main._captured_order_ids.clear()
+    main._access_token = None
+    main._token_expires_at = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -1189,5 +1228,323 @@ def test_ai_analyze_with_rich_document_checklist(client):
         assert doc["condition"] == "If customer insists card is valid"
         assert doc["recommended_next_step"] == "Request recent statement"
         assert doc["official_source"] == "https://developer.paypal.com"
+
+
+# ---------------------------------------------------------------------------
+# Database integration and persistence tests
+# ---------------------------------------------------------------------------
+
+def test_database_initialization():
+    """Verify database initialization creates all required tables idempotently."""
+    from database import init_db
+    from sqlalchemy import inspect
+    test_eng = create_engine("sqlite:///:memory:", poolclass=StaticPool)
+    init_db(target_engine=test_eng)
+    inspector = inspect(test_eng)
+    tables = inspector.get_table_names()
+    assert "payment_transactions" in tables
+    assert "recovery_cases" in tables
+    assert "ai_analyses" in tables
+
+
+def test_empty_database_behavior(client):
+    """Verify empty database returns 0 stats and empty lists."""
+    stats_res = client.get("/api/dashboard/stats")
+    assert stats_res.status_code == 200
+    stats = stats_res.json()
+    assert stats["total_transactions"] == 0
+    assert stats["successful_payments"] == 0
+    assert stats["failed_payments"] == 0
+    assert stats["pending_payments"] == 0
+    assert stats["recovery_cases"] == 0
+    assert stats["open_recovery_cases"] == 0
+    assert stats["resolved_recovery_cases"] == 0
+
+    tx_res = client.get("/api/transactions")
+    assert tx_res.status_code == 200
+    assert tx_res.json() == []
+
+    cases_res = client.get("/api/recovery-cases")
+    assert cases_res.status_code == 200
+    assert cases_res.json() == []
+
+    act_res = client.get("/api/activity")
+    assert act_res.status_code == 200
+    assert act_res.json() == []
+
+
+def test_payment_transaction_creation_and_retrieval(client):
+    """Creating an order persists it in the database and lists it via /api/transactions."""
+    mock_token = MagicMock()
+    mock_token.status_code = 200
+    mock_token.json.return_value = {"access_token": "token-1", "expires_in": 3600}
+
+    mock_order = MagicMock()
+    mock_order.status_code = 201
+    mock_order.json.return_value = {
+        "id": "ORDER-PERSIST-1",
+        "status": "CREATED",
+        "links": [{"rel": "approve", "href": "https://paypal.com/approve/1"}],
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=[mock_token, mock_order])
+    mock_async = MagicMock()
+    mock_async.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_async.__aexit__ = AsyncMock(return_value=None)
+
+    with patch.object(main, "PAYPAL_CLIENT_ID", "id"), patch.object(
+        main, "PAYPAL_CLIENT_SECRET", "secret"
+    ), patch("main.httpx.AsyncClient", return_value=mock_async):
+        res = client.post("/api/orders", json={"amount": "10.00", "currency": "USD"})
+        assert res.status_code == 200
+
+    tx_res = client.get("/api/transactions")
+    assert tx_res.status_code == 200
+    txs = tx_res.json()
+    assert len(txs) == 1
+    assert txs[0]["orderId"] == "ORDER-PERSIST-1"
+    assert txs[0]["amount"] == "10.00"
+    assert txs[0]["currency"] == "USD"
+    assert txs[0]["status"] == "awaiting_approval"
+
+
+def test_payment_status_updates_after_confirmed_capture(client):
+    """Payment transaction status transitions to COMPLETED after verified capture."""
+    mock_token = MagicMock()
+    mock_token.status_code = 200
+    mock_token.json.return_value = {"access_token": "token-1", "expires_in": 3600}
+
+    mock_order = MagicMock()
+    mock_order.status_code = 201
+    mock_order.json.return_value = {
+        "id": "ORDER-FLOW-1",
+        "status": "CREATED",
+        "links": [{"rel": "approve", "href": "https://paypal.com/approve"}],
+    }
+
+    mock_capture = MagicMock()
+    mock_capture.status_code = 201
+    mock_capture.json.return_value = {
+        "id": "ORDER-FLOW-1",
+        "status": "COMPLETED",
+        "purchase_units": [
+            {
+                "payments": {
+                    "captures": [
+                        {
+                            "id": "CAPTURE-FLOW-1",
+                            "amount": {"value": "10.00", "currency_code": "USD"},
+                            "status": "COMPLETED",
+                        }
+                    ]
+                }
+            }
+        ],
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=[mock_token, mock_order, mock_capture])
+    mock_async = MagicMock()
+    mock_async.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_async.__aexit__ = AsyncMock(return_value=None)
+
+    with patch.object(main, "PAYPAL_CLIENT_ID", "id"), patch.object(
+        main, "PAYPAL_CLIENT_SECRET", "secret"
+    ), patch("main.httpx.AsyncClient", return_value=mock_async):
+        client.post("/api/orders", json={"amount": "10.00", "currency": "USD"})
+
+        cap_res = client.post("/api/orders/ORDER-FLOW-1/capture")
+        assert cap_res.status_code == 200
+        assert cap_res.json()["status"] == "COMPLETED"
+
+    tx_res = client.get("/api/transactions?search=ORDER-FLOW-1")
+    assert tx_res.status_code == 200
+    txs = tx_res.json()
+    assert len(txs) == 1
+    assert txs[0]["status"] == "completed"
+    assert txs[0]["captureId"] == "CAPTURE-FLOW-1"
+
+
+def test_duplicate_paypal_order_handling(client):
+    """Attempting to capture an already captured order returns 409 and avoids duplicate records."""
+    mock_token = MagicMock()
+    mock_token.status_code = 200
+    mock_token.json.return_value = {"access_token": "token-1", "expires_in": 3600}
+
+    mock_capture = MagicMock()
+    mock_capture.status_code = 201
+    mock_capture.json.return_value = {
+        "id": "ORDER-DUP-1",
+        "status": "COMPLETED",
+        "purchase_units": [
+            {
+                "payments": {
+                    "captures": [{"id": "CAP-DUP-1", "status": "COMPLETED"}]
+                }
+            }
+        ],
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=[mock_token, mock_capture])
+    mock_async = MagicMock()
+    mock_async.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_async.__aexit__ = AsyncMock(return_value=None)
+
+    with patch.object(main, "PAYPAL_CLIENT_ID", "id"), patch.object(
+        main, "PAYPAL_CLIENT_SECRET", "secret"
+    ), patch("main.httpx.AsyncClient", return_value=mock_async):
+        res1 = client.post("/api/orders/ORDER-DUP-1/capture")
+        assert res1.status_code == 200
+
+        res2 = client.post("/api/orders/ORDER-DUP-1/capture")
+        assert res2.status_code == 409
+        assert "already been captured" in res2.json()["detail"].lower()
+
+    txs = client.get("/api/transactions?search=ORDER-DUP-1").json()
+    assert len(txs) == 1
+
+
+def test_recovery_case_creation_and_retrieval(client):
+    """Verify manual and automatic recovery case creation and listing."""
+    new_case = {
+        "title": "Declined card on checkout",
+        "problem_description": "Cardholder reported recurring failure",
+        "order_id": "ORDER-CASE-TEST",
+        "payment_reference": "CARD_DECLINED",
+        "status": "Action Required",
+    }
+    create_res = client.post("/api/recovery-cases", json=new_case)
+    assert create_res.status_code == 200
+    created = create_res.json()
+    assert created["title"] == "Declined card on checkout"
+    assert created["orderId"] == "ORDER-CASE-TEST"
+    assert created["status"] == "Action Required"
+
+    list_res = client.get("/api/recovery-cases")
+    assert list_res.status_code == 200
+    cases = list_res.json()
+    assert len(cases) == 1
+    assert cases[0]["title"] == "Declined card on checkout"
+
+    case_id = created["id"]
+    get_res = client.get(f"/api/recovery-cases/{case_id}")
+    assert get_res.status_code == 200
+    assert get_res.json()["id"] == case_id
+
+
+def test_recovery_case_status_updates(client):
+    """Verify updating a recovery case status via PATCH /api/recovery-cases/{id}."""
+    create_res = client.post(
+        "/api/recovery-cases",
+        json={"title": "Test Case", "problem_description": "Initial desc", "status": "OPEN"},
+    )
+    case_id = create_res.json()["id"]
+
+    patch_res = client.patch(
+        f"/api/recovery-cases/{case_id}",
+        json={"status": "RESOLVED", "title": "Resolved Case"},
+    )
+    assert patch_res.status_code == 200
+    updated = patch_res.json()
+    assert updated["status"] == "RESOLVED"
+    assert updated["title"] == "Resolved Case"
+
+
+def test_successful_ai_analysis_persistence(client):
+    """Successful Gemini AI payment analysis is saved to the database and linked to a recovery case."""
+    analysis_json = """{
+      "issue_title": "Instrument Declined Diagnosis",
+      "summary": "Customer card declined by bank filters.",
+      "confirmed_facts": ["Status: FAILED", "Error code: INSTRUMENT_DECLINED"],
+      "possible_causes": [{"description": "Insufficient funds", "evidence": "Status FAILED", "confidence": 80}],
+      "recommended_actions": ["Request alternative payment method"],
+      "retry_guidance": "Do not retry with same card",
+      "document_checklist": [{"document": "Bank statement", "reason": "Check funds", "condition": "If dispute"}],
+      "customer_facing_message": "Please try a different card.",
+      "additional_info_needed": "Bank decline reason code",
+      "source_references": ["https://developer.paypal.com"]
+    }"""
+    mock_model = _make_gemini_mock(analysis_json)
+
+    with patch.object(main, "_is_gemini_configured", return_value=True), patch.object(
+        main, "_get_gemini_model", return_value=mock_model
+    ):
+        ai_res = client.post(
+            "/api/ai/analyze-payment",
+            json={
+                "status": "FAILED",
+                "error_code": "INSTRUMENT_DECLINED",
+                "incident_description": "Buyer card declined during sandbox testing",
+                "order_id": "ORDER-AI-1",
+            },
+        )
+        assert ai_res.status_code == 200
+        data = ai_res.json()
+        assert data["issue_title"] == "Instrument Declined Diagnosis"
+
+    cases_res = client.get("/api/recovery-cases")
+    assert cases_res.status_code == 200
+    cases = cases_res.json()
+    assert len(cases) == 1
+    assert cases[0]["title"] == "Instrument Declined Diagnosis"
+    assert cases[0]["analysis"] is not None
+    assert cases[0]["analysis"]["summary"] == "Customer card declined by bank filters."
+
+
+def test_dashboard_stats_calculation(client, test_db_session):
+    """Dashboard KPI metrics calculate accurately from real database records."""
+    db = test_db_session()
+    tx1 = PaymentTransaction(order_id="TX-1", amount="10.00", currency="USD", status="COMPLETED")
+    tx2 = PaymentTransaction(order_id="TX-2", amount="20.00", currency="USD", status="FAILED", failure_reason="Declined")
+    tx3 = PaymentTransaction(order_id="TX-3", amount="30.00", currency="USD", status="AWAITING_APPROVAL")
+    c1 = RecoveryCase(case_number="CASE-001", title="Case 1", status="Action Required")
+    c2 = RecoveryCase(case_number="CASE-002", title="Case 2", status="RESOLVED")
+    db.add_all([tx1, tx2, tx3, c1, c2])
+    db.commit()
+    db.close()
+
+    stats_res = client.get("/api/dashboard/stats")
+    assert stats_res.status_code == 200
+    stats = stats_res.json()
+    assert stats["total_transactions"] == 3
+    assert stats["successful_payments"] == 1
+    assert stats["failed_payments"] == 1
+    assert stats["pending_payments"] == 1
+    assert stats["recovery_cases"] == 2
+    assert stats["open_recovery_cases"] == 1
+    assert stats["resolved_recovery_cases"] == 1
+
+
+def test_database_rollback_and_error_handling(test_db_session):
+    """Verify that database errors trigger rollbacks and do not leave partial state."""
+    from sqlalchemy.exc import IntegrityError
+    db = test_db_session()
+    tx1 = PaymentTransaction(order_id="ROLLBACK-1", amount="10.00", currency="USD", status="CREATED")
+    db.add(tx1)
+    db.commit()
+
+    # Attempt to insert duplicate order_id which violates unique constraint
+    tx2 = PaymentTransaction(order_id="ROLLBACK-1", amount="20.00", currency="USD", status="CREATED")
+    db.add(tx2)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+    # Verify state after rollback is intact
+    tx_count = db.query(PaymentTransaction).filter_by(order_id="ROLLBACK-1").count()
+    assert tx_count == 1
+    db.close()
+
+
+def test_settings_status_includes_database(client):
+    """Verify /api/settings/status reports database configuration safely."""
+    res = client.get("/api/settings/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["database_configured"] is True
+    assert data["database_type"] in ("sqlite", "postgresql")
+
 
 

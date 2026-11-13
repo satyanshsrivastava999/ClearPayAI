@@ -51,6 +51,8 @@ export interface DashboardStats {
   failedPayments: number
   pendingPayments: number
   recoveryCases: number
+  openRecoveryCases?: number
+  resolvedRecoveryCases?: number
 }
 
 export interface SystemStatus {
@@ -60,6 +62,9 @@ export interface SystemStatus {
   gemini_configured: boolean
   demo_mode: boolean
   model: string
+  database_configured?: boolean
+  database_type?: string
+  database_file?: string
 }
 
 /**

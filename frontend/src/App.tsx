@@ -12,6 +12,7 @@ import {
   type TransactionRecord,
   type RecoveryCaseRecord,
   type ActivityItem,
+  type DashboardStats,
   type SystemStatus,
 } from "./dashboardTypes"
 import { Sidebar } from "./components/Sidebar"
@@ -60,18 +61,13 @@ function App() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const [showDemoData, setShowDemoData] = useState(false)
 
-  // Session records (in-memory for active session)
+  // Database-backed records
   const [sessionTransactions, setSessionTransactions] = useState<TransactionRecord[]>([])
   const [recoveryCases, setRecoveryCases] = useState<RecoveryCaseRecord[]>([])
-  const [activityLog, setActivityLog] = useState<ActivityItem[]>([
-    {
-      id: "act-init",
-      timestamp: new Date().toLocaleTimeString(),
-      type: "system",
-      description: "ClearPay AI session started",
-      badge: "INFO",
-    },
-  ])
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
+  const [activityLog, setActivityLog] = useState<ActivityItem[]>([])
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(false)
+  const [dataError, setDataError] = useState<string | null>(null)
 
   // Backend connection & system status
   const [isChecking, setIsChecking] = useState(false)
@@ -211,6 +207,7 @@ function App() {
       } else {
         throw new Error(`Payment not completed. Status: ${data.status}`)
       }
+      void fetchDatabaseData()
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to capture payment"
@@ -241,6 +238,7 @@ function App() {
         },
         ...prev,
       ])
+      void fetchDatabaseData()
     }
   }
 
@@ -278,6 +276,49 @@ function App() {
     }
   }
 
+  const fetchDatabaseData = async () => {
+    setIsLoadingData(true)
+    setDataError(null)
+    try {
+      const [txRes, casesRes, statsRes, actRes] = await Promise.all([
+        fetch("http://127.0.0.1:8000/api/transactions"),
+        fetch("http://127.0.0.1:8000/api/recovery-cases"),
+        fetch("http://127.0.0.1:8000/api/dashboard/stats"),
+        fetch("http://127.0.0.1:8000/api/activity"),
+      ])
+
+      if (txRes.ok) {
+        const txData: TransactionRecord[] = await txRes.json()
+        setSessionTransactions(txData)
+      }
+      if (casesRes.ok) {
+        const casesData: RecoveryCaseRecord[] = await casesRes.json()
+        setRecoveryCases(casesData)
+      }
+      if (statsRes.ok) {
+        const s = await statsRes.json()
+        setDashboardStats({
+          totalTransactions: s.total_transactions,
+          successfulPayments: s.successful_payments,
+          failedPayments: s.failed_payments,
+          pendingPayments: s.pending_payments,
+          recoveryCases: s.recovery_cases,
+          openRecoveryCases: s.open_recovery_cases,
+          resolvedRecoveryCases: s.resolved_recovery_cases,
+        })
+      }
+      if (actRes.ok) {
+        const actData: ActivityItem[] = await actRes.json()
+        setActivityLog(actData)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load database records"
+      setDataError(msg)
+    } finally {
+      setIsLoadingData(false)
+    }
+  }
+
   // Handle return from PayPal
   const hasHandledReturn = useRef(false)
   useEffect(() => {
@@ -307,12 +348,14 @@ function App() {
         ])
       }, 0)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Initial health check on mount
+  // Initial health check and database fetch on mount
   useEffect(() => {
     const timer = setTimeout(() => {
       void checkBackendConnection()
+      void fetchDatabaseData()
     }, 0)
     return () => clearTimeout(timer)
   }, [])
@@ -422,6 +465,7 @@ function App() {
         },
         ...prev,
       ])
+      void fetchDatabaseData()
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create PayPal order"
@@ -469,6 +513,7 @@ function App() {
           previous_attempts: aiPreviousAttempts,
           incident_description: aiIncidentDescription,
           additional_diagnostics: aiAdditionalDiagnostics || null,
+          order_id: aiErrorCode ? `INC-${aiErrorCode}` : undefined,
         }),
       })
 
@@ -510,6 +555,7 @@ function App() {
         },
         ...prev,
       ])
+      void fetchDatabaseData()
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to analyze payment"
@@ -674,6 +720,10 @@ function App() {
               sessionTransactions={sessionTransactions}
               recoveryCases={recoveryCases}
               activityLog={activityLog}
+              dashboardStats={dashboardStats}
+              isLoading={isLoadingData}
+              error={dataError}
+              onRefresh={fetchDatabaseData}
               showDemoData={showDemoData}
               onToggleDemoData={setShowDemoData}
               onNavigate={setCurrentNav}
@@ -725,6 +775,9 @@ function App() {
               onAnalyzeTransaction={handleAnalyzeTransaction}
               showDemoData={showDemoData}
               onToggleDemoData={setShowDemoData}
+              isLoading={isLoadingData}
+              error={dataError}
+              onRefresh={fetchDatabaseData}
             />
           )}
 
@@ -735,6 +788,9 @@ function App() {
               onNavigateToCopilot={() => setCurrentNav("copilot")}
               showDemoData={showDemoData}
               onToggleDemoData={setShowDemoData}
+              isLoading={isLoadingData}
+              error={dataError}
+              onRefresh={fetchDatabaseData}
             />
           )}
 

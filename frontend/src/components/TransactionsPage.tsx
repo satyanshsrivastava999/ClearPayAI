@@ -9,6 +9,9 @@ interface TransactionsPageProps {
   onAnalyzeTransaction: (tx: TransactionRecord) => void
   showDemoData: boolean
   onToggleDemoData: (enabled: boolean) => void
+  isLoading?: boolean
+  error?: string | null
+  onRefresh?: () => void
 }
 
 export const TransactionsPage: React.FC<TransactionsPageProps> = ({
@@ -18,6 +21,9 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
   onAnalyzeTransaction,
   showDemoData,
   onToggleDemoData,
+  isLoading,
+  error,
+  onRefresh,
 }) => {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -45,20 +51,50 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
     <div className="transactions-page">
       {/* Information Notice */}
       <div className="notice-banner notice-info">
-        <span style={{ fontSize: "16px" }}>ℹ️</span>
+        <span style={{ fontSize: "16px" }}>🗄️</span>
         <div style={{ flex: 1 }}>
-          <strong>Session Transactions Notice:</strong> Displaying verified payment records from the current active
-          browser session. Persistent database storage has not been connected in Phase 3. Transactions reset upon page reload.
+          <strong>Database Connected:</strong> Displaying payment transaction records stored in <code>clearpayai.db</code>.
+          Order records, status, and capture tokens persist across reloads.
         </div>
-        <button
-          type="button"
-          onClick={() => onToggleDemoData(!showDemoData)}
-          className="btn-secondary btn-sm"
-          style={{ whiteSpace: "nowrap" }}
-        >
-          {showDemoData ? "Hide Demo Data" : "Preview Demo Data"}
-        </button>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="btn-secondary btn-sm"
+              style={{ whiteSpace: "nowrap" }}
+            >
+              {isLoading ? "Syncing..." : "↻ Refresh DB"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onToggleDemoData(!showDemoData)}
+            className="btn-secondary btn-sm"
+            style={{ whiteSpace: "nowrap" }}
+          >
+            {showDemoData ? "Hide Demo Data" : "Preview Demo Data"}
+          </button>
+        </div>
       </div>
+
+      {error && (
+        <div
+          className="notice-banner notice-warning"
+          style={{ marginBottom: "16px", background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b" }}
+        >
+          <span>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <strong>Database Error:</strong> {error}
+          </div>
+          {onRefresh && (
+            <button type="button" onClick={onRefresh} className="btn-secondary btn-sm">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {showDemoData && sessionTransactions.length === 0 && (
         <div
@@ -76,7 +112,7 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
           }}
         >
           <span className="status-badge badge-demo">[DEMO DATA MODE]</span>
-          <span>Showing sample transactions. No database is currently implemented.</span>
+          <span>Showing sample transactions. Database records are empty.</span>
         </div>
       )}
 
