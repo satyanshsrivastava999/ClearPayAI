@@ -81,7 +81,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div>
               <div style={{ color: "var(--text-muted)", marginBottom: "4px" }}>API Base URL</div>
               <div style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                {getApiBaseUrl() || "(Relative Origin / Production)"}
+                {getApiBaseUrl() || "Same Origin (Vercel /api)"}
               </div>
             </div>
 

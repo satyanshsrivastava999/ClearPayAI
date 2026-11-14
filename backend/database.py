@@ -24,20 +24,30 @@ def resolve_database_url(url: str | None = None) -> str:
     and PostgreSQL URLs with legacy 'postgres://' scheme are converted to 'postgresql://'."""
     raw_url = url or os.getenv("DATABASE_URL")
     if not raw_url:
+        # In Vercel serverless runtime, the application directory is read-only.
+        # Fall back to ephemeral /tmp SQLite if DATABASE_URL was not explicitly set.
+        if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+            return "sqlite:////tmp/clearpayai.db"
         return f"sqlite:///{DEFAULT_DB_FILE.as_posix()}"
 
     # Handle PostgreSQL legacy scheme (common in Render / Neon / Supabase)
     if raw_url.startswith("postgres://"):
         raw_url = raw_url.replace("postgres://", "postgresql://", 1)
 
+    # In-memory sqlite URL for testing
+    if raw_url == "sqlite:///:memory:":
+        return raw_url
+
+    # For Windows local compatibility when testing with the Vercel demo path
+    if raw_url == "sqlite:////tmp/clearpayai.db" and os.name == "nt":
+        import tempfile
+        tmp_db = Path(tempfile.gettempdir()) / "clearpayai.db"
+        return f"sqlite:///{tmp_db.as_posix()}"
+
     # Handle sqlite relative formats: sqlite:///./clearpayai.db or sqlite:///clearpayai.db
     if raw_url.startswith("sqlite:///./"):
         filename = raw_url.removeprefix("sqlite:///./")
         return f"sqlite:///{(_BACKEND_DIR / filename).resolve().as_posix()}"
-
-    # In-memory sqlite URL for testing
-    if raw_url == "sqlite:///:memory:":
-        return raw_url
 
     # Relative filename like sqlite:///test.db
     if raw_url.startswith("sqlite:///") and not raw_url.startswith("sqlite:////") and ":" not in raw_url[10:]:

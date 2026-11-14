@@ -232,52 +232,55 @@ Phase 3 adds the complete buyer approval and payment capture flow:
 
 ---
 
-## Production Cloud Deployment Guide
+## Vercel Multi-Service Cloud Deployment Guide
 
 ### Architecture Overview
-- **Frontend**: React + TypeScript + Vite hosted on **Vercel** (`dist/` output, SPA route rewrites in `vercel.json`).
-- **Backend**: FastAPI (Python 3.11+) hosted on **Render** Web Service (`backend/` root, `uvicorn main:app --host 0.0.0.0 --port $PORT`).
-- **Database**: Persistent PostgreSQL hosted on **Neon** or **Render PostgreSQL** (fallback to SQLite locally).
+ClearPay AI is configured for atomic deployment on **Vercel** as a single multi-service project:
+- **`clearpayai-backend` Service**: FastAPI backend (`backend/` directory, `main:app` ASGI entrypoint).
+- **`frontend` Service**: React + TypeScript + Vite frontend (`frontend/` directory, `dist/` output).
+- **Public Routing**: Configured in root `vercel.json`:
+  - `/api/*` rewrites to `clearpayai-backend`
+  - `/health` rewrites to `clearpayai-backend`
+  - All remaining routes rewrite to `frontend` (with client-side SPA routing preserved via `frontend/vercel.json`).
+- **Same-Origin API Access**: In production, the frontend uses relative `/api` paths against the same Vercel deployment domain, eliminating cross-origin CORS latency and complexity.
 
-### 1. Database Provisioning (Neon or Render PostgreSQL)
-1. **Neon (Recommended for Serverless PostgreSQL)**:
-   - Create a project on [Neon.tech](https://neon.tech).
-   - Copy the connection string (e.g. `postgresql://user:pass@ep-xyz.region.aws.neon.tech/neondb?sslmode=require`).
-   - Both `postgres://` and `postgresql://` formats are automatically resolved by `backend/database.py`.
-2. **Render PostgreSQL**:
-   - In Render Dashboard, click **New +** > **PostgreSQL**.
-   - Copy the **Internal Database URL** (for Render-to-Render) or **External Database URL**.
+### Temporary Demo Database (/tmp/clearpayai.db)
+For the Vercel serverless demo runtime:
+- `DATABASE_URL` is configured as `sqlite:////tmp/clearpayai.db`.
+- In AWS Lambda / Vercel Serverless containers, the application directory (`/var/task`) is **read-only**. Writing a database file to the application directory fails with `sqlite3.OperationalError: unable to open database file`.
+- `/tmp` is the only writable directory in serverless execution environments, allowing `init_db()` to initialize tables on startup without crashing.
 
-### 2. Backend Deployment on Render
-1. In the Render Dashboard, click **New +** > **Web Service**.
-2. Connect your GitHub repository: `https://github.com/satyanshsrivastava999/ClearPayAI`.
-3. Configure settings:
-   - **Name**: `clearpayai-backend`
-   - **Root Directory**: `backend`
-   - **Environment**: `Python`
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-   - **Health Check Path**: `/health`
-4. Add **Environment Variables** in the Render service dashboard:
-   - `DATABASE_URL`: Your PostgreSQL connection string (from Neon or Render PostgreSQL).
-   - `FRONTEND_URL`: Your Vercel frontend URL (e.g. `https://clearpayai.vercel.app`).
-   - `PAYPAL_CLIENT_ID`: Your PayPal Sandbox Client ID.
-   - `PAYPAL_CLIENT_SECRET`: Your PayPal Sandbox Secret Key.
-   - `PAYPAL_BASE_URL`: `https://api-m.sandbox.paypal.com`
-   - `GEMINI_API_KEY`: Your Google Gemini API Key.
-   - `GEMINI_MODEL`: `gemini-3.5-flash`
-   - `PYTHON_VERSION`: `3.11.9`
-5. Click **Create Web Service**. Note the deployed URL (e.g. `https://clearpayai-backend.onrender.com`).
-   - *Note*: An Infrastructure-as-Code `render.yaml` Blueprint is also included at the project root for 1-click deployment.
+> [!CAUTION]
+> **Ephemeral Storage Limitation (Temporary Demo Workaround Only):**
+> - **Data is not permanently stored**: SQLite files stored in `/tmp` are ephemeral and tied to temporary container lifetimes.
+> - **Data will disappear**: Records reset when the serverless container sleeps, restarts, or receives a new deployment.
+> - **Isolated instances**: Concurrent serverless invocations run in separate containers and **do not share the same `/tmp` database**.
+> - **Not production-ready**: This workaround is strictly for live interactive demonstration. It is **not** suitable for persistent production payment records, audit trails, or real transaction ledgers. Real persistence has not been solved for serverless SQLite; production persistence requires an external database (e.g. Neon PostgreSQL or Supabase).
 
-### 3. Frontend Deployment on Vercel
-1. Import your GitHub repository into [Vercel](https://vercel.com).
-2. Configure project settings:
-   - **Framework Preset**: `Vite`
-   - **Root Directory**: `frontend`
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-3. Add **Environment Variable**:
-   - `VITE_API_BASE_URL`: The live Render backend URL without trailing slash (e.g. `https://clearpayai-backend.onrender.com`).
-4. Click **Deploy**.
-5. Once deployed, copy your production Vercel URL and ensure it matches `FRONTEND_URL` in your Render backend settings so CORS and PayPal redirects point to the live frontend.
+### Vercel Deployment Steps
+
+1. **Import Repository**:
+   - In the [Vercel Dashboard](https://vercel.com/dashboard), click **Add New...** > **Project**.
+   - Import `https://github.com/satyanshsrivastava999/ClearPayAI`.
+   - Vercel automatically detects the root `vercel.json` defining the `clearpayai-backend` and `frontend` services.
+
+2. **Configure Environment Variables (in Vercel Dashboard)**:
+   Add the following environment variables under **Project Settings > Environment Variables** (applied to the `clearpayai-backend` service):
+
+   | Variable | Value / Description | Sensitive? |
+   | :--- | :--- | :---: |
+   | `DATABASE_URL` | `sqlite:////tmp/clearpayai.db` | No |
+   | `PAYPAL_CLIENT_ID` | Your PayPal Sandbox Client ID | Yes |
+   | `PAYPAL_CLIENT_SECRET` | Your PayPal Sandbox Secret Key | **Secret** |
+   | `PAYPAL_BASE_URL` | `https://api-m.sandbox.paypal.com` | No |
+   | `GEMINI_API_KEY` | Your Google Gemini API Key | **Secret** |
+   | `GEMINI_MODEL` | `gemini-3.5-flash` | No |
+
+   *Note*: Leave `VITE_API_BASE_URL` empty/unset in Vercel. Frontend requests will automatically use same-origin relative URLs (`/api/*`), correctly routed by Vercel to the backend service. All secrets remain strictly on the backend.
+
+3. **Deploy & Verify**:
+   - Click **Deploy**.
+   - Test the deployed endpoints:
+     - Health check: `https://<your-project>.vercel.app/health` returns `{"status":"healthy"}`.
+     - Settings status: `https://<your-project>.vercel.app/api/settings/status` returns operational flags.
+     - Frontend dashboard: `https://<your-project>.vercel.app/` loads the UI with live `/api` connectivity.

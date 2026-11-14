@@ -234,6 +234,11 @@ def _get_frontend_base_url() -> str:
     raw = os.getenv("FRONTEND_URL", "").strip()
     if raw:
         return raw.rstrip("/")
+    vercel_url = os.getenv("VERCEL_URL", "").strip()
+    if vercel_url:
+        if not vercel_url.startswith("http://") and not vercel_url.startswith("https://"):
+            vercel_url = f"https://{vercel_url}"
+        return vercel_url.rstrip("/")
     return "http://localhost:5173"
 
 
@@ -432,6 +437,12 @@ def _get_cors_origins() -> list[str]:
         cleaned = frontend_url.rstrip("/")
         if cleaned not in origins:
             origins.append(cleaned)
+    vercel_url = os.getenv("VERCEL_URL", "").strip()
+    if vercel_url:
+        v_cleaned = f"https://{vercel_url}" if not (vercel_url.startswith("http://") or vercel_url.startswith("https://")) else vercel_url
+        v_cleaned = v_cleaned.rstrip("/")
+        if v_cleaned not in origins:
+            origins.append(v_cleaned)
     custom_origins = os.getenv("CORS_ORIGINS", "").strip()
     if custom_origins:
         for orig in custom_origins.split(","):

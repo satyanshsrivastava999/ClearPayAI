@@ -3,8 +3,9 @@
  *
  * Resolves the backend API base URL:
  * - In development: defaults to http://127.0.0.1:8000 (preserving local dev behavior).
- * - In production: uses VITE_API_BASE_URL (configured in Vercel project environment).
- * - Ensures production builds never inadvertently call localhost without warning.
+ * - In production: uses same-origin relative URLs ("") by default for Vercel
+ *   multi-service deployment where /api/* and /health are routed directly to clearpayai-backend.
+ * - Supports VITE_API_BASE_URL if explicitly configured (warns if targeting localhost in production).
  */
 
 export function getApiBaseUrl(): string {
@@ -18,18 +19,14 @@ export function getApiBaseUrl(): string {
     if (isProd && (cleaned.includes("localhost") || cleaned.includes("127.0.0.1"))) {
       console.warn(
         "[ClearPay AI Warning] Production build is targeting a localhost URL: " +
-        cleaned + ". Ensure VITE_API_BASE_URL in Vercel points to your deployed Render service."
+        cleaned + ". In Vercel multi-service deployment, leave VITE_API_BASE_URL empty to use same-origin /api routes."
       )
     }
     return cleaned
   }
 
-  // If in production without explicit VITE_API_BASE_URL, avoid defaulting to localhost
+  // In production, default to same-origin relative URLs ("") for Vercel multi-service routing
   if (isProd) {
-    console.warn(
-      "[ClearPay AI] VITE_API_BASE_URL is not set in production. " +
-      "Set VITE_API_BASE_URL in your Vercel project settings to your Render backend URL."
-    )
     return ""
   }
 
