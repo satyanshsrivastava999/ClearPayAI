@@ -1,5 +1,6 @@
 import React from "react"
 import { type SystemStatus } from "../dashboardTypes"
+import { getApiBaseUrl } from "../apiConfig"
 
 interface SettingsPageProps {
   backendHealthy: boolean | null
@@ -80,14 +81,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div>
               <div style={{ color: "var(--text-muted)", marginBottom: "4px" }}>API Base URL</div>
               <div style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                http://127.0.0.1:8000
+                {getApiBaseUrl() || "(Relative Origin / Production)"}
               </div>
             </div>
 
             <div>
-              <div style={{ color: "var(--text-muted)", marginBottom: "4px" }}>CORS Origin</div>
+              <div style={{ color: "var(--text-muted)", marginBottom: "4px" }}>Frontend Origin</div>
               <div style={{ fontFamily: "var(--mono)", fontWeight: 500 }}>
-                http://localhost:5173
+                {typeof window !== "undefined" ? window.location.origin : "http://localhost:5173"}
               </div>
             </div>
           </div>

@@ -1,7 +1,7 @@
 """Database engine, session management, and configuration for ClearPay AI.
 
 Supports SQLite by default (at C:\\ClearPayAI\\backend\\clearpayai.db) and
-PostgreSQL via DATABASE_URL environment variable.
+PostgreSQL via DATABASE_URL environment variable (supports Neon, Render, Supabase).
 """
 
 import os
@@ -20,10 +20,15 @@ DEFAULT_DB_FILE = _BACKEND_DIR / "clearpayai.db"
 
 
 def resolve_database_url(url: str | None = None) -> str:
-    """Resolve database URL ensuring SQLite relative paths are anchored to backend dir."""
+    """Resolve database URL ensuring SQLite relative paths are anchored to backend dir,
+    and PostgreSQL URLs with legacy 'postgres://' scheme are converted to 'postgresql://'."""
     raw_url = url or os.getenv("DATABASE_URL")
     if not raw_url:
         return f"sqlite:///{DEFAULT_DB_FILE.as_posix()}"
+
+    # Handle PostgreSQL legacy scheme (common in Render / Neon / Supabase)
+    if raw_url.startswith("postgres://"):
+        raw_url = raw_url.replace("postgres://", "postgresql://", 1)
 
     # Handle sqlite relative formats: sqlite:///./clearpayai.db or sqlite:///clearpayai.db
     if raw_url.startswith("sqlite:///./"):
@@ -44,12 +49,23 @@ def resolve_database_url(url: str | None = None) -> str:
 
 DATABASE_URL = resolve_database_url()
 
-_connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+is_sqlite = DATABASE_URL.startswith("sqlite")
+
+_engine_kwargs: dict = {
+    "pool_pre_ping": True,
+}
+
+if is_sqlite:
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # PostgreSQL cloud settings (Render / Neon serverless)
+    _engine_kwargs["pool_recycle"] = 300
+    _engine_kwargs["pool_size"] = 10
+    _engine_kwargs["max_overflow"] = 20
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args=_connect_args,
-    pool_pre_ping=True,
+    **_engine_kwargs,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -72,4 +88,3 @@ def init_db(target_engine=None) -> None:
     import models  # noqa: F401
     eng = target_engine or engine
     Base.metadata.create_all(bind=eng)
-

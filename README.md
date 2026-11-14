@@ -229,3 +229,55 @@ Phase 3 adds the complete buyer approval and payment capture flow:
 - **PayPal error**: Returns 502 "PayPal capture failed."
 - **Non-COMPLETED status**: Returns 409 "Payment not completed."
 - **Missing credentials**: Returns 500 "PayPal credentials are not configured."
+
+---
+
+## Production Cloud Deployment Guide
+
+### Architecture Overview
+- **Frontend**: React + TypeScript + Vite hosted on **Vercel** (`dist/` output, SPA route rewrites in `vercel.json`).
+- **Backend**: FastAPI (Python 3.11+) hosted on **Render** Web Service (`backend/` root, `uvicorn main:app --host 0.0.0.0 --port $PORT`).
+- **Database**: Persistent PostgreSQL hosted on **Neon** or **Render PostgreSQL** (fallback to SQLite locally).
+
+### 1. Database Provisioning (Neon or Render PostgreSQL)
+1. **Neon (Recommended for Serverless PostgreSQL)**:
+   - Create a project on [Neon.tech](https://neon.tech).
+   - Copy the connection string (e.g. `postgresql://user:pass@ep-xyz.region.aws.neon.tech/neondb?sslmode=require`).
+   - Both `postgres://` and `postgresql://` formats are automatically resolved by `backend/database.py`.
+2. **Render PostgreSQL**:
+   - In Render Dashboard, click **New +** > **PostgreSQL**.
+   - Copy the **Internal Database URL** (for Render-to-Render) or **External Database URL**.
+
+### 2. Backend Deployment on Render
+1. In the Render Dashboard, click **New +** > **Web Service**.
+2. Connect your GitHub repository: `https://github.com/satyanshsrivastava999/ClearPayAI`.
+3. Configure settings:
+   - **Name**: `clearpayai-backend`
+   - **Root Directory**: `backend`
+   - **Environment**: `Python`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Health Check Path**: `/health`
+4. Add **Environment Variables** in the Render service dashboard:
+   - `DATABASE_URL`: Your PostgreSQL connection string (from Neon or Render PostgreSQL).
+   - `FRONTEND_URL`: Your Vercel frontend URL (e.g. `https://clearpayai.vercel.app`).
+   - `PAYPAL_CLIENT_ID`: Your PayPal Sandbox Client ID.
+   - `PAYPAL_CLIENT_SECRET`: Your PayPal Sandbox Secret Key.
+   - `PAYPAL_BASE_URL`: `https://api-m.sandbox.paypal.com`
+   - `GEMINI_API_KEY`: Your Google Gemini API Key.
+   - `GEMINI_MODEL`: `gemini-3.5-flash`
+   - `PYTHON_VERSION`: `3.11.9`
+5. Click **Create Web Service**. Note the deployed URL (e.g. `https://clearpayai-backend.onrender.com`).
+   - *Note*: An Infrastructure-as-Code `render.yaml` Blueprint is also included at the project root for 1-click deployment.
+
+### 3. Frontend Deployment on Vercel
+1. Import your GitHub repository into [Vercel](https://vercel.com).
+2. Configure project settings:
+   - **Framework Preset**: `Vite`
+   - **Root Directory**: `frontend`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+3. Add **Environment Variable**:
+   - `VITE_API_BASE_URL`: The live Render backend URL without trailing slash (e.g. `https://clearpayai-backend.onrender.com`).
+4. Click **Deploy**.
+5. Once deployed, copy your production Vercel URL and ensure it matches `FRONTEND_URL` in your Render backend settings so CORS and PayPal redirects point to the live frontend.

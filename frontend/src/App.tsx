@@ -23,6 +23,7 @@ import { TransactionsPage } from "./components/TransactionsPage"
 import { RecoveryCasesPage } from "./components/RecoveryCasesPage"
 import { SettingsPage } from "./components/SettingsPage"
 import { CopilotPage } from "./components/CopilotPage"
+import { apiUrl } from "./apiConfig"
 
 // PayPal return parameters parsed once at module load
 const INITIAL_RETURN = parsePayPalReturn(window.location.search)
@@ -112,7 +113,7 @@ function App() {
   const captureOrder = async (id: string) => {
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/api/orders/${id}/capture`,
+        apiUrl(`/api/orders/${id}/capture`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -245,7 +246,7 @@ function App() {
   const checkBackendConnection = async () => {
     setIsChecking(true)
     try {
-      const response = await fetch("http://127.0.0.1:8000/health", {
+      const response = await fetch(apiUrl("/health"), {
         method: "GET",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -261,7 +262,7 @@ function App() {
 
       // Also fetch system status safely
       try {
-        const sysRes = await fetch("http://127.0.0.1:8000/api/settings/status")
+        const sysRes = await fetch(apiUrl("/api/settings/status"))
         if (sysRes.ok) {
           const sysData: SystemStatus = await sysRes.json()
           setSystemStatus(sysData)
@@ -281,10 +282,10 @@ function App() {
     setDataError(null)
     try {
       const [txRes, casesRes, statsRes, actRes] = await Promise.all([
-        fetch("http://127.0.0.1:8000/api/transactions"),
-        fetch("http://127.0.0.1:8000/api/recovery-cases"),
-        fetch("http://127.0.0.1:8000/api/dashboard/stats"),
-        fetch("http://127.0.0.1:8000/api/activity"),
+        fetch(apiUrl("/api/transactions")),
+        fetch(apiUrl("/api/recovery-cases")),
+        fetch(apiUrl("/api/dashboard/stats")),
+        fetch(apiUrl("/api/activity")),
       ])
 
       if (txRes.ok) {
@@ -380,7 +381,7 @@ function App() {
       const demoId = `DEMO-ORDER-${Math.floor(Math.random() * 900 + 100)}`
       setPaymentState("simulated_completed")
       setOrderId(demoId)
-      setApprovalUrl("http://localhost:5173?demo=true")
+      setApprovalUrl(`${window.location.origin}?demo=true`)
       setOrderAmount("10.00")
       setOrderCurrency("USD")
       setCaptureId("DEMO-CAPTURE-456")
@@ -418,7 +419,7 @@ function App() {
     }
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/orders", {
+      const response = await fetch(apiUrl("/api/orders"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(orderRequest),
@@ -500,7 +501,7 @@ function App() {
     setAiHistory([])
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/ai/analyze-payment", {
+      const response = await fetch(apiUrl("/api/ai/analyze-payment"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -578,7 +579,7 @@ function App() {
     const currentQ = aiFollowUpQuestion.trim()
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/ai/follow-up", {
+      const response = await fetch(apiUrl("/api/ai/follow-up"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

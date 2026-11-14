@@ -227,6 +227,17 @@ async def get_access_token() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Frontend URL helper
+# ---------------------------------------------------------------------------
+def _get_frontend_base_url() -> str:
+    """Return the frontend base URL for redirect callbacks and CORS."""
+    raw = os.getenv("FRONTEND_URL", "").strip()
+    if raw:
+        return raw.rstrip("/")
+    return "http://localhost:5173"
+
+
+# ---------------------------------------------------------------------------
 # PayPal order creation
 # ---------------------------------------------------------------------------
 async def create_paypal_order(amount: str, currency: str) -> dict:
@@ -234,13 +245,14 @@ async def create_paypal_order(amount: str, currency: str) -> dict:
 
     If DEMO_MODE is enabled, returns a simulated order without calling PayPal.
     """
+    frontend_base = _get_frontend_base_url()
     if _is_demo_mode():
         return {
             "id": "DEMO-ORDER-123",
             "status": "CREATED",
             "links": [
                 {
-                    "href": "http://localhost:5173?demo=true",
+                    "href": f"{frontend_base}?demo=true",
                     "rel": "approve",
                     "method": "GET",
                 }
@@ -261,8 +273,8 @@ async def create_paypal_order(amount: str, currency: str) -> dict:
             }
         ],
         "application_context": {
-            "return_url": "http://localhost:5173",
-            "cancel_url": "http://localhost:5173?cancelled=1",
+            "return_url": frontend_base,
+            "cancel_url": f"{frontend_base}?cancelled=1",
             "brand_name": "ClearPay AI",
             "user_action": "PAY_NOW",
         },
@@ -407,10 +419,33 @@ app = FastAPI(title="ClearPay AI API", lifespan=lifespan)
 # Auto-initialize on import so tables exist even if lifespan context isn't used
 init_db()
 
-# CORS — allow local Vite dev origin
+def _get_cors_origins() -> list[str]:
+    """Build list of allowed CORS origins, supporting local dev and deployed frontend."""
+    origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    frontend_url = os.getenv("FRONTEND_URL", "").strip()
+    if frontend_url:
+        cleaned = frontend_url.rstrip("/")
+        if cleaned not in origins:
+            origins.append(cleaned)
+    custom_origins = os.getenv("CORS_ORIGINS", "").strip()
+    if custom_origins:
+        for orig in custom_origins.split(","):
+            cleaned = orig.strip().rstrip("/")
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
+    return origins
+
+
+# CORS — allow local Vite dev origin, deployed Vercel frontend, and Vercel preview deploys
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=_get_cors_origins(),
+    allow_origin_regex=r"^https://.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1268,3 +1303,10 @@ async def get_recent_activity(
         }
         for x in activities[:limit]
     ]
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
